@@ -1,17 +1,31 @@
 package cz.lhoracek.reactnativepushpoc;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
-import android.view.View;
 import android.support.design.widget.NavigationView;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v7.app.ActionBarDrawerToggle;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+
+import com.google.gson.GsonBuilder;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 public class MainActivity extends AppCompatActivity
         implements NavigationView.OnNavigationItemSelectedListener {
@@ -27,8 +41,12 @@ public class MainActivity extends AppCompatActivity
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        downloadAppInfo();
+                    }
+                }).start();
             }
         });
 
@@ -97,5 +115,59 @@ public class MainActivity extends AppCompatActivity
         DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
         drawer.closeDrawer(GravityCompat.START);
         return true;
+    }
+
+
+    public void downloadAppInfo() {  //this is the downloader method
+        try {
+            OkHttpClient client = new OkHttpClient();
+            Request request = new Request.Builder().url("https://lhoracek.cz/react/appInfo.json").build();
+            Response response = new OkHttpClient().newCall(request).execute();
+            Log.d("Download", "Requesting " + "https://lhoracek.cz/react/appInfo.json");
+            Log.d("Download", "Response " + response.code());
+            if (response.code() == 200) {
+
+                InputStream in = response.body().byteStream();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+                String result = "";
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    result += line;
+                }
+
+                AppInfo appInfo = new GsonBuilder().create().fromJson(result, AppInfo.class);
+                response.body().close();
+
+                if (appInfo != null) {
+
+                    Log.d("Download", "Requesting " + "https://lhoracek.cz/react/" + appInfo.getBundleFile());
+                    request = new Request.Builder().url("https://lhoracek.cz/react/" + appInfo.getBundleFile()).build();
+                    response = new OkHttpClient().newCall(request).execute();
+
+                    Log.d("Download", "Response " + response.code());
+                    if (response.code() == 200) {
+
+                        File app = new File(getExternalCacheDir(), "app.bundle");
+                        FileWriter fw = new FileWriter(app);
+
+                        in = response.body().byteStream();
+                        reader = new BufferedReader(new InputStreamReader(in));
+                        while ((line = reader.readLine()) != null) {
+                            fw.write(line);
+                        }
+                        fw.close();
+                        response.body().close();
+
+                        Intent intent = new Intent(MainActivity.this, ReactActivity.class);
+                        intent.putExtra("bundle", app.getPath());
+                        intent.putExtra("module", appInfo.getModuleName());
+
+                        startActivity(intent);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
